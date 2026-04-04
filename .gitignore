@@ -142,7 +142,7 @@ provider_config.json
 .mcp.json
 frontend/
 integrations/
-providers/
+/providers/
 
 # Private release notes
 docs/PYPI_RELEASE.md
@@ -165,7 +165,7 @@ run_ingest.py
 run_test.ps1
 smoke_test.py
 integrations/
-providers/
+/providers/
 demo_init.py
 fastapi/
 openclaw/
