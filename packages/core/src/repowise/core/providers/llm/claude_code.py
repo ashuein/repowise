@@ -1,24 +1,26 @@
 """Claude Code provider for repowise.
 
-Routes LLM calls through the Claude Agent SDK, which uses the same
-authentication as your Claude Code installation. If you have a Claude Max
-subscription, this means wiki generation costs nothing beyond your subscription.
+Routes LLM calls through the ``claude`` CLI in print mode (``-p``), which
+uses whatever authentication your Claude Code installation is configured with.
+If you have a Claude Max subscription, wiki generation costs nothing beyond
+your subscription — no API key needed.
 
-The provider invokes the Agent SDK's ``query()`` with no tools enabled and
-``permission_mode="dontAsk"``, so Claude simply generates text — no file reads,
-no bash commands, no agentic loops. It behaves like a plain completion API.
+The provider invokes ``claude -p`` with ``--tools ""`` (no tools) so Claude
+simply generates text. No file reads, no bash commands, no agentic loops.
 
 Requirements:
-    pip install claude-agent-sdk
+    - Claude Code CLI installed and authenticated (``claude --version``)
 
 Usage:
-    provider = ClaudeCodeProvider(model="claude-sonnet-4-6")
+    provider = ClaudeCodeProvider(model="sonnet")
     response = await provider.generate(system_prompt="...", user_prompt="...")
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import shutil
 
 import structlog
 
@@ -43,41 +45,35 @@ def _estimate_tokens(text: str) -> int:
 
 
 class ClaudeCodeProvider(BaseProvider):
-    """Claude Code provider using the Claude Agent SDK.
+    """Claude Code provider using the ``claude`` CLI.
 
-    Routes LLM calls through the locally installed Claude Code binary,
-    using whatever authentication it's configured with (API key or
-    Claude Max subscription).
+    Spawns ``claude -p <prompt>`` as a subprocess for each generation call,
+    using the CLI's own authentication (OAuth subscription or API key).
 
     No tools are enabled — Claude generates text only, making this
     behave like a standard completion API.
 
     Args:
-        model:        Model to use. Defaults to claude-sonnet-4-6.
-                      Passed as ``model`` in ClaudeAgentOptions.
-        max_turns:    Maximum agent turns. Defaults to 1 since we only
-                      need a single text response (no tool loops).
+        model:        Model alias or full name. Defaults to "sonnet".
+                      Passed as ``--model`` to the CLI.
         rate_limiter: Optional RateLimiter for concurrency control.
     """
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-6",
-        max_turns: int = 2,
+        model: str = "sonnet",
         rate_limiter: RateLimiter | None = None,
     ) -> None:
         self._model = model
-        self._max_turns = max_turns
         self._rate_limiter = rate_limiter
 
-        # Validate that the SDK is importable at construction time
-        try:
-            import claude_agent_sdk  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "ClaudeCodeProvider requires the 'claude-agent-sdk' package. "
-                "Install it with: pip install claude-agent-sdk"
-            ) from exc
+        # Validate that the claude CLI is available at construction time
+        if not shutil.which("claude"):
+            raise ProviderError(
+                "claude_code",
+                "Claude Code CLI not found on PATH. "
+                "Install it from: https://claude.ai/download",
+            )
 
     @property
     def provider_name(self) -> str:
@@ -144,56 +140,105 @@ class ClaudeCodeProvider(BaseProvider):
         user_prompt: str,
         max_tokens: int,
     ) -> GeneratedResponse:
-        """Execute a single generation call via the Agent SDK."""
-        from claude_agent_sdk import (
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ResultMessage,
-            query,
-        )
-
-        # Build options: no tools, no file access — pure text generation.
-        options = ClaudeAgentOptions(
-            system_prompt=system_prompt,
-            allowed_tools=[],
-            permission_mode="dontAsk",
-            model=self._model,
-            max_turns=self._max_turns,
-        )
-
-        # Collect text from the agent's response stream.
-        text_parts: list[str] = []
+        """Execute a single generation call via the claude CLI."""
+        cmd = [
+            "claude",
+            "-p",                               # print mode (non-interactive)
+            "--output-format", "json",           # structured output with usage
+            "--model", self._model,
+            "--system-prompt", system_prompt,
+            "--tools", "",                       # disable all tools
+            "--no-session-persistence",          # don't save session to disk
+            "--bare",                            # skip hooks, CLAUDE.md, etc.
+            user_prompt,
+        ]
 
         try:
-            async for message in query(prompt=user_prompt, options=options):
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if hasattr(block, "text") and block.text:
-                            text_parts.append(block.text)
-                elif isinstance(message, ResultMessage) and hasattr(message, "result") and message.result:
-                    text_parts.append(message.result)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+        except FileNotFoundError as exc:
+            raise ProviderError(
+                "claude_code",
+                "Claude Code CLI not found. Install from: https://claude.ai/download",
+            ) from exc
         except Exception as exc:
-            error_msg = str(exc)
-            if "API key" in error_msg or "authentication" in error_msg.lower():
+            raise ProviderError(
+                "claude_code",
+                f"Failed to spawn claude CLI: {exc}",
+            ) from exc
+
+        # The CLI outputs JSON to stdout even on errors (exit code 1),
+        # so always try to parse stdout first.
+        raw_output = stdout.decode("utf-8", errors="replace").strip()
+        err_text = stderr.decode("utf-8", errors="replace").strip()
+
+        if not raw_output:
+            if proc.returncode != 0:
                 raise ProviderError(
                     "claude_code",
-                    "Authentication failed. Ensure Claude Code is logged in "
-                    "(run 'claude' in terminal) or set ANTHROPIC_API_KEY.",
-                ) from exc
-            raise ProviderError("claude_code", f"Agent SDK error: {error_msg}") from exc
+                    f"claude CLI exited with code {proc.returncode}: "
+                    f"{err_text or 'no output'}",
+                )
+            raise ProviderError(
+                "claude_code",
+                "claude CLI returned empty output.",
+            )
 
-        content = "\n".join(text_parts).strip()
+        # Parse JSON output — the CLI returns:
+        # {"type":"result", "result":"...", "is_error":false,
+        #  "usage":{"input_tokens":N, "output_tokens":N, ...}, ...}
+        content = raw_output
+        input_tokens = 0
+        output_tokens = 0
+
+        try:
+            data = json.loads(raw_output)
+
+            # Check for errors reported in the JSON response
+            if data.get("is_error"):
+                error_result = data.get("result", "Unknown error")
+                if "auth" in error_result.lower():
+                    raise ProviderError(
+                        "claude_code",
+                        "Authentication failed. Run 'claude' interactively to log in, "
+                        "or set ANTHROPIC_API_KEY.",
+                    )
+                raise ProviderError("claude_code", f"claude CLI error: {error_result}")
+
+            # Extract the text content
+            content = data.get("result", "")
+
+            # Extract real usage from JSON (the CLI provides actual token counts)
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+        except ProviderError:
+            raise
+        except (json.JSONDecodeError, AttributeError) as exc:
+            # If not valid JSON, treat raw output as the content (text mode fallback).
+            # This can happen if --output-format json isn't supported.
+            if proc.returncode != 0:
+                raise ProviderError(
+                    "claude_code",
+                    f"claude CLI exited with code {proc.returncode}: "
+                    f"{err_text or raw_output}",
+                ) from exc
 
         if not content:
             raise ProviderError(
                 "claude_code",
-                "Agent SDK returned empty response. Ensure Claude Code is "
-                "authenticated and the model is available.",
+                "claude CLI returned empty response.",
             )
 
-        # Estimate token usage (Agent SDK does not expose usage stats).
-        input_tokens = _estimate_tokens(system_prompt) + _estimate_tokens(user_prompt)
-        output_tokens = _estimate_tokens(content)
+        # Fall back to estimation if usage not available from JSON
+        if input_tokens == 0:
+            input_tokens = _estimate_tokens(system_prompt) + _estimate_tokens(user_prompt)
+        if output_tokens == 0:
+            output_tokens = _estimate_tokens(content)
 
         return GeneratedResponse(
             content=content,
@@ -201,8 +246,8 @@ class ClaudeCodeProvider(BaseProvider):
             output_tokens=output_tokens,
             cached_tokens=0,
             usage={
-                "estimated": True,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "estimated": input_tokens == 0,
             },
         )

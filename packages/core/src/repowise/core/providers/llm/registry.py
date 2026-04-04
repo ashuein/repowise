@@ -138,7 +138,7 @@ def get_provider(
             "gemini": "google-genai",
             "ollama": "openai",  # ollama uses the openai package
             "litellm": "litellm",
-            "claude_code": "claude-agent-sdk",
+            "claude_code": "claude-code-cli (install from https://claude.ai/download)",
         }
         package = _missing.get(name, name)
         raise ImportError(

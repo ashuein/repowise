@@ -84,7 +84,8 @@ dependencies = [
 
 [project.optional-dependencies]
 claude_code = [
-    "claude-agent-sdk>=0.1",
+    # No extra dependencies — uses the claude CLI directly.
+    # Kept as an empty extra for forward compatibility.
 ]
 postgres = [
     "pgvector>=0.3,<1",
