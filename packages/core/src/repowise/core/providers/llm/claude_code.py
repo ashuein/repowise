@@ -149,7 +149,6 @@ class ClaudeCodeProvider(BaseProvider):
             "--system-prompt", system_prompt,
             "--tools", "",                       # disable all tools
             "--no-session-persistence",          # don't save session to disk
-            "--bare",                            # skip hooks, CLAUDE.md, etc.
             user_prompt,
         ]
 
