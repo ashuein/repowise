@@ -80,6 +80,7 @@ _PROVIDER_DEFAULTS: dict[str, str] = {
     "gemini": "gemini-3.1-flash-lite-preview",
     "openai": "gpt-4.1",
     "anthropic": "claude-sonnet-4-6",
+    "claude_code": "claude-sonnet-4-6",
     "ollama": "llama3.2",
     "litellm": "groq/llama-3.1-70b-versatile",
 }
@@ -88,6 +89,7 @@ _PROVIDER_ENV: dict[str, str] = {
     "gemini": "GEMINI_API_KEY",
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "claude_code": "_CLAUDE_CODE_NO_KEY_NEEDED",
     "ollama": "OLLAMA_BASE_URL",
 }
 
@@ -95,6 +97,7 @@ _PROVIDER_SIGNUP: dict[str, str] = {
     "gemini": "https://aistudio.google.com/apikey",
     "openai": "https://platform.openai.com/api-keys",
     "anthropic": "https://console.anthropic.com/settings/keys",
+    "claude_code": "https://claude.ai/download",
     "ollama": "https://ollama.com/download",
 }
 
@@ -221,10 +224,16 @@ def interactive_mode_select(console: Console) -> str:
 
 def _detect_provider_status() -> dict[str, str]:
     """Return {provider: env_var_name} for providers whose key is set."""
+    import shutil
+
     status: dict[str, str] = {}
     for prov, env_var in _PROVIDER_ENV.items():
         if prov == "gemini":
             if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+                status[prov] = env_var
+        elif prov == "claude_code":
+            # claude_code is available if the 'claude' CLI is on PATH
+            if shutil.which("claude"):
                 status[prov] = env_var
         elif os.environ.get(env_var):
             status[prov] = env_var
@@ -258,12 +267,20 @@ def interactive_provider_select(
     table.add_column("Default Model", style="dim")
 
     for idx, prov in enumerate(providers, 1):
-        status_text = f"[{OK}]✓ API key set[/]" if prov in detected else "[dim]✗ no key[/dim]"
+        if prov == "claude_code":
+            status_text = (
+                f"[{OK}]✓ Claude CLI found[/]"
+                if prov in detected
+                else "[dim]✗ claude not found[/dim]"
+            )
+        else:
+            status_text = f"[{OK}]✓ API key set[/]" if prov in detected else "[dim]✗ no key[/dim]"
         default_model = _PROVIDER_DEFAULTS.get(prov, "")
-        # Mark gemini as recommended
         label = prov
         if prov == "gemini":
             label = f"{prov} [dim](recommended)[/dim]"
+        elif prov == "claude_code":
+            label = f"{prov} [dim](no API key needed)[/dim]"
         table.add_row(f"[{idx}]", label, status_text, default_model)
 
     console.print()
@@ -289,6 +306,17 @@ def interactive_provider_select(
 
     # --- inline API key entry if missing ---
     if chosen not in detected:
+        if chosen == "claude_code":
+            # claude_code needs the Claude CLI installed, not an API key
+            console.print()
+            console.print(
+                f"  [bold]{chosen}[/bold] requires the Claude CLI to be installed."
+            )
+            console.print(
+                f"  Install it from: [{BRAND}]{_PROVIDER_SIGNUP.get(chosen, '')}[/]"
+            )
+            console.print(f"  [{WARN}]Claude CLI not found on PATH. Select another provider.[/]")
+            return interactive_provider_select(console, model_flag, repo_path=repo_path)
         env_var = _PROVIDER_ENV[chosen]
         signup_url = _PROVIDER_SIGNUP.get(chosen, "")
         console.print()

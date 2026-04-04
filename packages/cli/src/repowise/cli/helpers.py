@@ -258,6 +258,7 @@ def resolve_provider(
             kwargs["api_key"] = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         elif provider_name == "ollama" and os.environ.get("OLLAMA_BASE_URL"):
             kwargs["base_url"] = os.environ["OLLAMA_BASE_URL"]
+        # claude_code needs no API key — uses Claude Code's own auth
 
         return get_provider(provider_name, **kwargs)
 
@@ -331,9 +332,14 @@ def validate_provider_config(provider_name: str | None = None) -> list[str]:
         "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],  # Either one
         "ollama": ["OLLAMA_BASE_URL"],
         "litellm": ["LITELLM_API_KEY"],  # May need others depending on backend
+        # claude_code uses Claude Code's own auth — no env var required
     }
 
     if provider_name:
+        # claude_code uses Claude Code's own auth — nothing to validate
+        if provider_name == "claude_code":
+            return warnings
+
         # Validate specific provider
         if provider_name not in provider_env_vars:
             warnings.append(f"Unknown provider '{provider_name}' - cannot validate configuration")

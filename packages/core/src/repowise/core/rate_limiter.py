@@ -49,6 +49,8 @@ PROVIDER_DEFAULTS: dict[str, RateLimitConfig] = {
     # Ollama runs locally — effectively unlimited, but we cap to avoid OOM
     "ollama": RateLimitConfig(requests_per_minute=1_000, tokens_per_minute=10_000_000),
     "litellm": RateLimitConfig(requests_per_minute=60, tokens_per_minute=150_000),
+    # Claude Code / Agent SDK — conservative limits to avoid subscription throttling
+    "claude_code": RateLimitConfig(requests_per_minute=20, tokens_per_minute=80_000),
 }
 
 

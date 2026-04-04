@@ -9,12 +9,13 @@ to instantiate a provider by name — this is the preferred entry point.
     response = await provider.generate(system_prompt="...", user_prompt="...")
 
 Built-in providers:
-    anthropic  — claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
-    openai     — gpt-5.4-nano, gpt-5.4-mini, gpt-5.4
-    gemini     — gemini-3.1-flash-lite-preview, gemini-3-flash-preview, gemini-3.1-pro-preview
-    ollama     — local inference (llama3.2, codellama, etc.)
-    litellm    — 100+ providers via LiteLLM proxy
-    mock       — deterministic test provider
+    anthropic   — claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
+    openai      — gpt-5.4-nano, gpt-5.4-mini, gpt-5.4
+    gemini      — gemini-3.1-flash-lite-preview, gemini-3-flash-preview, gemini-3.1-pro-preview
+    ollama      — local inference (llama3.2, codellama, etc.)
+    litellm     — 100+ providers via LiteLLM proxy
+    claude_code — Claude Agent SDK (uses Claude Code auth / subscription)
+    mock        — deterministic test provider
 """
 
 from repowise.core.providers.llm.base import (

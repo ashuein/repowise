@@ -5,11 +5,13 @@ Supports built-in providers and runtime registration of custom providers,
 enabling community-contributed providers without forking repowise.
 
 Built-in providers:
-    - anthropic  → AnthropicProvider
-    - openai     → OpenAIProvider
-    - ollama     → OllamaProvider
-    - litellm    → LiteLLMProvider
-    - mock       → MockProvider (testing only)
+    - anthropic    → AnthropicProvider
+    - openai       → OpenAIProvider
+    - gemini       → GeminiProvider
+    - ollama       → OllamaProvider
+    - litellm      → LiteLLMProvider
+    - claude_code  → ClaudeCodeProvider (Agent SDK, no API key needed)
+    - mock         → MockProvider (testing only)
 
 Custom provider registration:
     from repowise.core.providers import register_provider
@@ -39,6 +41,7 @@ _BUILTIN_PROVIDERS: dict[str, tuple[str, str]] = {
     "gemini": ("repowise.core.providers.llm.gemini", "GeminiProvider"),
     "ollama": ("repowise.core.providers.llm.ollama", "OllamaProvider"),
     "litellm": ("repowise.core.providers.llm.litellm", "LiteLLMProvider"),
+    "claude_code": ("repowise.core.providers.llm.claude_code", "ClaudeCodeProvider"),
     "mock": ("repowise.core.providers.llm.mock", "MockProvider"),
 }
 
@@ -135,6 +138,7 @@ def get_provider(
             "gemini": "google-genai",
             "ollama": "openai",  # ollama uses the openai package
             "litellm": "litellm",
+            "claude_code": "claude-agent-sdk",
         }
         package = _missing.get(name, name)
         raise ImportError(

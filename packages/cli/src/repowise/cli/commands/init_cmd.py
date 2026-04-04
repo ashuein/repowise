@@ -259,7 +259,7 @@ async def _persist_result(
     "--provider",
     "provider_name",
     default=None,
-    help="LLM provider name (anthropic, openai, gemini, ollama, mock).",
+    help="LLM provider name (anthropic, openai, gemini, ollama, claude_code, mock).",
 )
 @click.option("--model", default=None, help="Model identifier override.")
 @click.option(
