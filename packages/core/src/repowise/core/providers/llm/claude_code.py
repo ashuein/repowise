@@ -141,6 +141,8 @@ class ClaudeCodeProvider(BaseProvider):
         max_tokens: int,
     ) -> GeneratedResponse:
         """Execute a single generation call via the claude CLI."""
+        import os
+
         cmd = [
             "claude",
             "-p",                               # print mode (non-interactive)
@@ -152,11 +154,17 @@ class ClaudeCodeProvider(BaseProvider):
             user_prompt,
         ]
 
+        # Build a clean env that strips ANTHROPIC_API_KEY so the CLI
+        # falls back to subscription / OAuth auth instead of using a
+        # potentially empty or low-credit API key.
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
             stdout, stderr = await proc.communicate()
         except FileNotFoundError as exc:
